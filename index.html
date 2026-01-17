@@ -359,8 +359,8 @@
           )}
 
           {view === 'simulator' && (
-            <div className="flex flex-col h-full bg-[#7494c0] w-full">
-              <div className="fixed top-0 left-0 right-0 w-full z-20 bg-[#7494c0]">
+            <div className="flex flex-col h-full bg-[#7494c0] w-full relative">
+              <div className="fixed top-0 left-0 right-0 w-full z-50 bg-[#7494c0] shadow-md">
                 <div className="bg-[#7494c0]" style={{height: 'max(1.5rem, env(safe-area-inset-top))'}} />
                 <div className="bg-[#7494c0] px-4 py-2 flex items-center text-white">
                   <button onClick={() => setView('editor')} className="p-1 -ml-2">
@@ -429,7 +429,7 @@
                 ))}
               </div>
 
-              <div className="fixed bottom-0 left-0 right-0 w-full z-20 bg-white px-2 py-2 flex items-center gap-2 border-t border-gray-200/50" style={{paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))'}}>
+              <div className="fixed bottom-0 left-0 right-0 w-full z-50 bg-white px-2 py-2 flex items-center gap-2 border-t border-gray-200/50 shadow-[0_-2px_10px_rgba(0,0,0,0.1)]" style={{paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))'}}>
                 <Icon name="plus" size={24} className="text-gray-500" />
                 <div className="flex-1 bg-gray-100 rounded-[22px] px-3.5 py-2.5 min-h-[44px] flex items-center">
                   {isWaitingInput ? (
