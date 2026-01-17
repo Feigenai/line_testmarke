@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>LINE シミュレーター</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { margin: 0; padding: 0; }
+    @keyframes slide-in-from-bottom-2 {
+      from { transform: translateY(8px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .animate-in { animation: slide-in-from-bottom-2 0.3s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, createElement } = React;
+
+    const Icon = ({ name, size = 24, className = '', fill = 'none', ...props }) => {
+      const iconRef = useRef(null);
+      
+      useEffect(() => {
+        if (iconRef.current && window.lucide) {
+          window.lucide.createIcons({ icons: { [name]: window.lucide[name] } });
+        }
+      }, [name]);
+      
+      return createElement('i', { 
+        ref: iconRef,
+        'data-lucide': name, 
+        className,
+        width: size,
+        height: size,
+        fill,
+        ...props 
+      });
+    };
+
+    const App = () => {
+      const [view, setView] = useState('editor');
+      const [partnerName, setPartnerName] = useState('お相手の名前');
+      const [partnerIcon, setPartnerIcon] = useState(null);
+      const [messages, setMessages] = useState([
+        { id: 1, sender: 'other', text: 'こんにちは！', delay: 1000 },
+        { id: 2, sender: 'manual', text: '（ここに手動入力）', delay: 500 },
+        { id: 3, sender: 'other', text: '返信ありがとうございます！', delay: 1500 },
+      ]);
+
+      const [simulatedMessages, setSimulatedMessages] = useState([]);
+      const [isSimulating, setIsSimulating] = useState(false);
+      const [currentIndex, setCurrentIndex] = useState(0);
+      const [flickeringText, setFlickeringText] = useState("");
+      const [isTyping, setIsTyping] = useState(false);
+      const [userInput, setUserInput] = useState("");
+      const [isWaitingInput, setIsWaitingInput] = useState(false);
+
+      const fileInputRef = useRef(null);
+      const previewImageRefs = useRef({});
+
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
+
+      const handleIconChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => setPartnerIcon(reader.result);
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const handlePreviewImageChange = (id, e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setMessages(messages.map(m => m.id === id ? { 
+              ...m, 
+              linkPreview: { ...m.linkPreview, image: reader.result } 
+            } : m));
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const addMessage = () => {
+        const newMessage = {
+          id: Date.now(),
+          sender: 'other',
+          text: '',
+          delay: 2000
+        };
+        setMessages([...messages, newMessage]);
+      };
+
+      const updateMessage = (id, field, value) => {
+        setMessages(messages.map(m => {
+          if (m.id === id) {
+            const updated = { ...m, [field]: value };
+            if (field === 'text' && value.startsWith('http') && !m.linkPreview) {
+              updated.linkPreview = { title: 'サイトのタイトル', description: 'サイトの説明文...', image: null };
+            }
+            return updated;
+          }
+          return m;
+        }));
+      };
+
+      const removeMessage = (id) => {
+        setMessages(messages.filter(m => m.id !== id));
+      };
+
+      const startSimulation = () => {
+        setSimulatedMessages([]);
+        setCurrentIndex(0);
+        setIsSimulating(true);
+        setIsWaitingInput(false);
+        setUserInput("");
+        setView('simulator');
+      };
+
+      useEffect(() => {
+        if (!isSimulating || currentIndex >= messages.length || isWaitingInput) {
+          if (currentIndex >= messages.length) setIsSimulating(false);
+          return;
+        }
+
+        const currentMsg = messages[currentIndex];
+        
+        if (currentMsg.sender === 'manual') {
+          const waitTimer = setTimeout(() => {
+            setIsWaitingInput(true);
+          }, currentMsg.delay);
+          return () => clearTimeout(waitTimer);
+        }
+
+        const timer = setTimeout(async () => {
+          if (currentMsg.sender === 'me') {
+            setIsTyping(true);
+            let text = "";
+            for (let char of currentMsg.text) {
+              text += char;
+              setFlickeringText(text);
+              await new Promise(r => setTimeout(r, 80)); 
+            }
+            await new Promise(r => setTimeout(r, 400)); 
+            setSimulatedMessages(prev => [...prev, { 
+              ...currentMsg, 
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+            }]);
+            setFlickeringText("");
+            setIsTyping(false);
+            setCurrentIndex(prev => prev + 1);
+          } else {
+            setSimulatedMessages(prev => [...prev, { 
+              ...currentMsg, 
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+            }]);
+            setCurrentIndex(prev => prev + 1);
+          }
+        }, currentMsg.delay);
+
+        return () => clearTimeout(timer);
+      }, [isSimulating, currentIndex, messages, isWaitingInput]);
+
+      const handleManualSend = () => {
+        if (!userInput.trim()) return;
+        
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setSimulatedMessages(prev => [...prev, { 
+          sender: 'me', 
+          text: userInput, 
+          timestamp 
+        }]);
+        
+        setUserInput("");
+        setIsWaitingInput(false);
+        setCurrentIndex(prev => prev + 1);
+      };
+
+      const scrollRef = useRef(null);
+      useEffect(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, [simulatedMessages, flickeringText, isWaitingInput]);
+
+      return (
+        <div className="fixed inset-0 bg-white font-sans overflow-hidden flex flex-col items-center">
+          {view === 'editor' && (
+            <div className="flex flex-col h-full bg-gray-50 w-full max-w-lg border-x border-gray-200">
+              <div className="bg-gray-900 text-white p-4 flex justify-between items-center shrink-0 shadow-md z-10">
+                <div className="flex items-center gap-3">
+                  <Icon name="settings" size={24}/>
+                  <h1 className="font-bold text-lg">LINE シミュレーター</h1>
+                </div>
+                <button 
+                  onClick={startSimulation}
+                  className="bg-green-500 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-lg active:scale-95 transition"
+                >
+                  <Icon name="play" size={18}/>
+                  <span className="font-bold text-sm">実行</span>
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 p-4 space-y-4 pb-20">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                  <label className="text-xs text-gray-500 font-bold mb-2 block uppercase tracking-wide">相手の設定</label>
+                  <div className="flex items-center gap-4">
+                    <div 
+                      className="w-14 h-14 rounded-full bg-gray-100 border-2 border-gray-200 flex items-center justify-center cursor-pointer overflow-hidden"
+                      onClick={() => fileInputRef.current.click()}
+                    >
+                      {partnerIcon ? (
+                        <img src={partnerIcon} className="w-full h-full object-cover" />
+                      ) : (
+                        <Icon name="user" size={36} className="text-gray-300"/>
+                      )}
+                    </div>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept="image/*"
+                      onChange={handleIconChange} 
+                    />
+                    <input 
+                      type="text" 
+                      value={partnerName}
+                      onChange={(e) => setPartnerName(e.target.value)}
+                      placeholder="相手の名前を入力"
+                      className="flex-1 text-base p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none font-medium"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {messages.map((msg, index) => (
+                    <div key={msg.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs text-gray-400 font-bold uppercase tracking-wide">メッセージ #{index + 1}</span>
+                        <button onClick={() => removeMessage(msg.id)} className="text-red-400 p-1">
+                          <Icon name="trash-2" size={18}/>
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
+                          <button 
+                            onClick={() => updateMessage(msg.id, 'sender', 'me')} 
+                            className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition ${msg.sender === 'me' ? 'bg-white shadow text-green-600' : 'text-gray-400'}`}
+                          >
+                            自分(自動)
+                          </button>
+                          <button 
+                            onClick={() => updateMessage(msg.id, 'sender', 'manual')} 
+                            className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition ${msg.sender === 'manual' ? 'bg-white shadow text-orange-600' : 'text-gray-400'}`}
+                          >
+                            自分(手動)
+                          </button>
+                          <button 
+                            onClick={() => updateMessage(msg.id, 'sender', 'other')} 
+                            className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition ${msg.sender === 'other' ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}
+                          >
+                            相手
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <label className="text-[10px] text-gray-400 font-bold block mb-1">
+                            本文 {msg.sender === 'manual' ? '(シミュレータで実際に入力します)' : msg.text.startsWith('http') ? <span className="text-blue-500">(リンク検知)</span> : ''}
+                          </label>
+                          <textarea 
+                            disabled={msg.sender === 'manual'}
+                            value={msg.sender === 'manual' ? "手動入力待ちステップ" : msg.text}
+                            onChange={(e) => updateMessage(msg.id, 'text', e.target.value)}
+                            className={`w-full text-sm p-3 border border-gray-200 rounded-xl focus:ring-1 focus:ring-green-400 outline-none resize-none ${msg.sender === 'manual' ? 'bg-gray-50 text-gray-400 italic' : ''}`}
+                            rows="2"
+                          />
+                        </div>
+                        
+                        {msg.linkPreview && msg.sender !== 'manual' && (
+                          <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 space-y-2">
+                            <div className="flex items-center gap-1 text-blue-600 text-[10px] font-bold mb-1">
+                              <Icon name="link" size={12}/> プレビュー編集
+                            </div>
+                            <input 
+                              type="text" 
+                              placeholder="サイトのタイトル" 
+                              value={msg.linkPreview.title}
+                              onChange={(e) => updateMessage(msg.id, 'linkPreview', { ...msg.linkPreview, title: e.target.value })}
+                              className="w-full text-[11px] p-2 border border-blue-200 rounded bg-white"
+                            />
+                            <textarea 
+                              placeholder="説明文" 
+                              value={msg.linkPreview.description}
+                              onChange={(e) => updateMessage(msg.id, 'linkPreview', { ...msg.linkPreview, description: e.target.value })}
+                              className="w-full text-[11px] p-2 border border-blue-200 rounded bg-white resize-none"
+                              rows="2"
+                            />
+                            <div 
+                              className="h-16 w-full border border-blue-200 rounded bg-white flex items-center justify-center cursor-pointer overflow-hidden"
+                              onClick={() => previewImageRefs.current[msg.id].click()}
+                            >
+                              {msg.linkPreview.image ? (
+                                <img src={msg.linkPreview.image} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="flex flex-col items-center text-gray-400">
+                                  <Icon name="image" size={16}/>
+                                  <span className="text-[8px]">サムネイル追加</span>
+                                </div>
+                              )}
+                              <input 
+                                type="file" 
+                                ref={el => previewImageRefs.current[msg.id] = el} 
+                                className="hidden" 
+                                accept="image/*" 
+                                onChange={(e) => handlePreviewImageChange(msg.id, e)} 
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-gray-400 font-bold uppercase">待ち時間 / 入力待ち</span>
+                          <div className="flex items-center gap-1">
+                            <input 
+                              type="number" 
+                              value={msg.delay} 
+                              onChange={(e) => updateMessage(msg.id, 'delay', parseInt(e.target.value) || 0)} 
+                              className="w-20 text-xs p-1 border border-gray-200 rounded text-right" 
+                            />
+                            <span className="text-[10px] text-gray-400">ms</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button 
+                  onClick={addMessage}
+                  className="w-full py-4 border-2 border-dashed border-gray-300 rounded-2xl text-gray-400 flex justify-center items-center gap-2 mb-10"
+                >
+                  <Icon name="plus" size={24}/>
+                  <span className="font-bold text-sm">メッセージを追加</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {view === 'simulator' && (
+            <div className="flex flex-col h-full bg-[#7494c0] w-full">
+              <div className="fixed top-0 left-0 right-0 w-full z-20 bg-[#7494c0]">
+                <div className="bg-[#7494c0]" style={{height: 'max(1.5rem, env(safe-area-inset-top))'}} />
+                <div className="bg-[#7494c0] px-4 py-2 flex items-center text-white">
+                  <button onClick={() => setView('editor')} className="p-1 -ml-2">
+                    <Icon name="arrow-left" size={28}/>
+                  </button>
+                  <div className="flex-1 px-2 overflow-hidden">
+                    <span className="font-bold text-lg truncate">{partnerName}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <Icon name="search" size={22} />
+                    <Icon name="phone" size={22} />
+                    <Icon name="more-horizontal" size={22} />
+                  </div>
+                </div>
+              </div>
+
+              <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 space-y-2 scroll-smooth" style={{paddingTop: 'calc(4rem + env(safe-area-inset-top))', paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))'}}>
+                {simulatedMessages.map((msg, idx) => (
+                  <div key={idx} className={`flex animate-in items-end gap-1.5 ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
+                    {msg.sender === 'other' && (
+                      <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center flex-shrink-0 border border-gray-100 overflow-hidden shadow-sm">
+                        {partnerIcon ? (
+                          <img src={partnerIcon} className="w-full h-full object-cover" />
+                        ) : (
+                          <Icon name="user" size={24} className="text-gray-300"/>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className={`flex flex-col ${msg.sender === 'me' ? 'items-end' : 'items-start'} max-w-[75%]`}>
+                      {msg.sender === 'other' && (
+                        <span className="text-[10px] text-white/80 mb-0.5 px-1">{partnerName}</span>
+                      )}
+                      <div className={`px-3.5 py-2.5 rounded-2xl text-base leading-relaxed ${
+                        msg.sender === 'me' ? 'bg-[#85e249] text-black rounded-tr-sm' : 'bg-white text-black rounded-tl-sm shadow'
+                      }`}>
+                        {msg.text}
+                      </div>
+                      {msg.linkPreview && (
+                        <div className={`mt-1 overflow-hidden border border-black/5 bg-white shadow flex flex-col ${
+                          msg.sender === 'me' ? 'rounded-l-2xl rounded-br-2xl' : 'rounded-r-2xl rounded-bl-2xl'
+                        }`}>
+                          {msg.linkPreview.image && (
+                            <img src={msg.linkPreview.image} className="w-full aspect-video object-cover" />
+                          )}
+                          <div className="p-3 bg-white">
+                            <h4 className="text-[13px] font-bold text-black line-clamp-1 mb-0.5">
+                              {msg.linkPreview.title}
+                            </h4>
+                            <p className="text-[11px] text-gray-500 line-clamp-2 leading-snug">
+                              {msg.linkPreview.description}
+                            </p>
+                            <span className="text-[10px] text-gray-400 mt-2 block">
+                              {new URL(msg.text).hostname}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col text-[9px] text-white/70 leading-tight self-end pb-0.5 whitespace-nowrap">
+                      {msg.sender === 'me' && <span>既読</span>}
+                      <span>{msg.timestamp}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="fixed bottom-0 left-0 right-0 w-full z-20 bg-white px-2 py-2 flex items-center gap-2 border-t border-gray-200/50" style={{paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))'}}>
+                <Icon name="plus" size={24} className="text-gray-500" />
+                <div className="flex-1 bg-gray-100 rounded-[22px] px-3.5 py-2.5 min-h-[44px] flex items-center">
+                  {isWaitingInput ? (
+                    <input 
+                      autoFocus
+                      type="text"
+                      value={userInput}
+                      onChange={(e) => setUserInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleManualSend()}
+                      placeholder="メッセージを入力"
+                      className="bg-transparent w-full text-black text-base outline-none"
+                    />
+                  ) : (
+                    <span className="text-gray-800 text-base leading-snug whitespace-pre-wrap break-all">
+                      {flickeringText}
+                      {isTyping && <span className="w-[2px] h-4 bg-[#2e86de] animate-pulse inline-block align-middle ml-0.5" />}
+                    </span>
+                  )}
+                </div>
+                <button 
+                  onClick={isWaitingInput ? handleManualSend : null}
+                  disabled={isWaitingInput && !userInput.trim()}
+                  className={`p-1.5 transition active:scale-90 ${(flickeringText || (isWaitingInput && userInput)) ? 'text-[#00c300]' : 'text-gray-300'}`}
+                >
+                  <Icon name="send" size={26} fill={(flickeringText || (isWaitingInput && userInput)) ? "currentColor" : "none"}/>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
